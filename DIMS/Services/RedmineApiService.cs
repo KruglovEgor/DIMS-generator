@@ -60,6 +60,7 @@ namespace DIMS.Services
                         identifier = projectData.Identifier,
                         description = "Создано с использованием DIMS",
                         parent_id = projectData.Parent?.Id ?? _config.RootProjectId,
+                        inherit_members = true,
                         custom_fields = customFieldsList
                     }
                 };
@@ -159,5 +160,105 @@ namespace DIMS.Services
                 throw;
             }
         }
+
+        /// <summary>
+        /// Получает ID проекта по его идентификатору
+        /// </summary>
+        /// <param name="projectIdentifier">Идентификатор проекта</param>
+        /// <returns>ID проекта или 0, если проект не найден</returns>
+        public async Task<int> GetProjectIdByIdentifier(string projectIdentifier)
+        {
+            try
+            {
+                // Отправляем запрос к API Redmine для получения информации о проекте
+                var response = await _httpClient.GetAsync($"/projects/{projectIdentifier}.json");
+
+                // Если проект найден, обрабатываем ответ
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseData = await response.Content.ReadAsStringAsync();
+                    var project = JsonConvert.DeserializeObject<dynamic>(responseData);
+                    return (int)project.project.id;
+                }
+                else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    // Проект не найден
+                    return 0;
+                }
+                else
+                {
+                    // Другая ошибка
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    throw new Exception($"Ошибка получения проекта: {response.StatusCode}. {errorContent}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при получении проекта: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"Внутренняя ошибка: {ex.InnerException.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Ищет задачу по названию в указанном проекте
+        /// </summary>
+        /// <param name="projectId">ID проекта</param>
+        /// <param name="subject">Название задачи</param>
+        /// <param name="trackerId">ID трекера (опционально)</param>
+        /// <returns>ID задачи или 0, если задача не найдена</returns>
+        public async Task<int> FindIssueBySubjectInProject(int projectId, string subject, int? trackerId = null)
+        {
+            try
+            {
+                // Формируем параметры запроса
+                var parameters = $"project_id={projectId}&subject={Uri.EscapeDataString(subject)}";
+                if (trackerId.HasValue)
+                {
+                    parameters += $"&tracker_id={trackerId.Value}";
+                }
+
+                // Отправляем запрос к API Redmine для поиска задачи
+                var response = await _httpClient.GetAsync($"/issues.json?{parameters}");
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseData = await response.Content.ReadAsStringAsync();
+                    var issuesResponse = JsonConvert.DeserializeObject<dynamic>(responseData);
+
+                    // Проверяем наличие задач в ответе
+                    if (issuesResponse.issues != null && issuesResponse.issues.Count > 0)
+                    {
+                        // Возвращаем ID первой найденной задачи
+                        foreach (var issue in issuesResponse.issues)
+                        {
+                            // Проверяем точное совпадение названия
+                            if (string.Equals((string)issue.subject, subject, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return (int)issue.id;
+                            }
+                        }
+                    }
+
+                    // Задача с точным совпадением не найдена
+                    return 0;
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Ошибка поиска задачи: {response.StatusCode}. {errorContent}");
+                    return 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при поиске задачи: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"Внутренняя ошибка: {ex.InnerException.Message}");
+                return 0;
+            }
+        }
+
     }
 }

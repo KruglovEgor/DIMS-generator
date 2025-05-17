@@ -33,7 +33,7 @@ class Program
             }
 
             // Создаем сервис для работы с Excel и обрабатываем файл
-            var excelService = new ExcelService(apiService, "Resources/Templates/DIMS.xlsm");
+            var excelService = new ExcelService(apiService, excelPath);
             await excelService.ProcessExcelFile(excelPath);
 
             Console.WriteLine("Обработка Excel-файла завершена");

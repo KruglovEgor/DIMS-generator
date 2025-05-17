@@ -1,7 +1,9 @@
 ﻿using DIMS.Models;
+using Newtonsoft.Json;
 using OfficeOpenXml;
 using System.ComponentModel;
 using System.IO;
+using System.Net.Http;
 
 
 namespace DIMS.Services
@@ -137,6 +139,25 @@ namespace DIMS.Services
                 return existingProjectId;
             }
 
+            try
+            {
+                int existingProjectIdInRedmine = await _redmineApiService.GetProjectIdByIdentifier(projectIdentifier);
+                if (existingProjectIdInRedmine > 0)
+                {
+                    // Проект существует в Redmine, сохраняем его ID в локальном кэше
+                    Console.WriteLine($"Найден существующий проект: {projectIdentifier} (ID: {existingProjectIdInRedmine})");
+                    _createdProjects[projectIdentifier] = existingProjectIdInRedmine;
+                    return existingProjectIdInRedmine;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Проект не найден или произошла ошибка при поиске, продолжаем создание нового
+                Console.WriteLine($"Проект {projectIdentifier} не найден в Redmine: {ex.Message}");
+            }
+
+
+
             //TODO : спросить про эту логику
             string parentProjecId = GetCellValue(worksheet, rowIndex, headers, "parent_id (projects)");
             if (string.IsNullOrEmpty(parentProjecId))
@@ -151,7 +172,6 @@ namespace DIMS.Services
                 Identifier = projectIdentifier,
                 Parent = new RedmineProjectParent { Id = int.Parse(parentProjecId) }, // ID родительского проекта (если есть)
                 CustomFields = new List<RedmineCustomField>()
-
             };
 
             string[] projectCustomFields = { "43", "44", "38", "45", "39", "35", "36", "40", "41", "42"};
@@ -159,7 +179,6 @@ namespace DIMS.Services
             // Добавляем кастомные поля проекта, если они есть в заголовках
             foreach (var header in headers)
             {
-                
                 if (projectCustomFields.Contains(header.Key)) {
                     string value = GetCellValue(worksheet, rowIndex, headers, header.Key);
                     if (!string.IsNullOrEmpty(value))
@@ -182,6 +201,10 @@ namespace DIMS.Services
 
             return newProjectId;
         }
+
+
+       
+
 
         private async Task<int?> GetOrCreateParentIssue(ExcelWorksheet worksheet, int rowIndex, Dictionary<string, int> headers, int projectId)
         {
@@ -206,12 +229,34 @@ namespace DIMS.Services
             }
 
             string parentIssueTrackerIdStr = GetCellValue(worksheet, rowIndex, headers, "parent_tracker_id (issues)");
+            int trackerId = int.Parse(parentIssueTrackerIdStr.Split('_')[0]);
+
+            try
+            {
+                // Проверяем существование задачи в Redmine
+                int existingIssueIdInRedmine = await _redmineApiService.FindIssueBySubjectInProject(
+                    projectId, parentIssueSubject, trackerId);
+
+                if (existingIssueIdInRedmine > 0)
+                {
+                    // Задача существует в Redmine, сохраняем её ID в локальном кэше
+                    Console.WriteLine($"Найдена существующая родительская задача: {parentIssueSubject} (ID: {existingIssueIdInRedmine})");
+                    _createdParentIssues[parentIssueKey] = existingIssueIdInRedmine;
+                    return existingIssueIdInRedmine;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Задача не найдена или произошла ошибка при поиске, продолжаем создание новой
+                Console.WriteLine($"Родительская задача '{parentIssueSubject}' не найдена в Redmine: {ex.Message}");
+            }
+
             // Создаем новую родительскую задачу
             var parentIssue = new RedmineIssue
             {
                 ProjectId = projectId,
                 Subject = parentIssueSubject,
-                Tracker = new RedmineTracker { Id = int.Parse(parentIssueTrackerIdStr.Split('_')[0]) },
+                Tracker = new RedmineTracker { Id = trackerId },
                 CustomFields = new List<RedmineCustomField>()
             };
 
