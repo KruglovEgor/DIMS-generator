@@ -24,7 +24,7 @@ class Program
 
             
             // Путь к файлу Excel по умолчанию
-            string excelPath = "Resources/Templates/DIMS.xlsm";
+            string excelPath = "Resources/Templates/DIMS_2.xlsx";
 
             // Если указан путь к файлу в аргументах, используем его
             if (args.Length > 1)
