@@ -20,7 +20,7 @@ namespace DIMS.Services
         static ExcelService()
         {
             // Устанавливаем некоммерческую лицензию для EPPlus
-            
+
         }
 
         public ExcelService(RedmineApiService redmineApiService, string templatePath)
@@ -127,38 +127,37 @@ namespace DIMS.Services
         {
             // Получаем название проекта
             string projectName = GetCellValue(worksheet, rowIndex, headers, "name (projects)");
-            string projectIdentifier = GetValidIdentifier(GetCellValue(worksheet, rowIndex, headers, "identifier (projects)"));
             if (string.IsNullOrEmpty(projectName))
             {
                 throw new InvalidOperationException("Не указано название проекта");
             }
 
+            // Используем имя проекта вместо идентификатора
+            string projectIdentifier = GetValidIdentifier(projectName);
+
             // Проверяем, был ли уже создан такой проект
-            if (_createdProjects.TryGetValue(projectIdentifier, out int existingProjectId))
+            if (_createdProjects.TryGetValue(projectName, out int existingProjectId))
             {
                 return existingProjectId;
             }
 
             try
             {
-                int existingProjectIdInRedmine = await _redmineApiService.GetProjectIdByIdentifier(projectIdentifier);
+                int existingProjectIdInRedmine = await _redmineApiService.GetProjectIdByName(projectName);
                 if (existingProjectIdInRedmine > 0)
                 {
                     // Проект существует в Redmine, сохраняем его ID в локальном кэше
-                    Console.WriteLine($"Найден существующий проект: {projectIdentifier} (ID: {existingProjectIdInRedmine})");
-                    _createdProjects[projectIdentifier] = existingProjectIdInRedmine;
+                    Console.WriteLine($"Найден существующий проект: {projectName} (ID: {existingProjectIdInRedmine})");
+                    _createdProjects[projectName] = existingProjectIdInRedmine;
                     return existingProjectIdInRedmine;
                 }
             }
             catch (Exception ex)
             {
                 // Проект не найден или произошла ошибка при поиске, продолжаем создание нового
-                Console.WriteLine($"Проект {projectIdentifier} не найден в Redmine: {ex.Message}");
+                Console.WriteLine($"Проект {projectName} не найден в Redmine: {ex.Message}");
             }
 
-
-
-            //TODO : спросить про эту логику
             string parentProjecId = GetCellValue(worksheet, rowIndex, headers, "parent_id (projects)");
             if (string.IsNullOrEmpty(parentProjecId))
             {
@@ -174,12 +173,13 @@ namespace DIMS.Services
                 CustomFields = new List<RedmineCustomField>()
             };
 
-            string[] projectCustomFields = { "43", "44", "38", "45", "39", "35", "36", "40", "41", "42"};
+            string[] projectCustomFields = { "43", "44", "38", "45", "39", "35", "36", "40", "41", "42" };
 
             // Добавляем кастомные поля проекта, если они есть в заголовках
             foreach (var header in headers)
             {
-                if (projectCustomFields.Contains(header.Key)) {
+                if (projectCustomFields.Contains(header.Key))
+                {
                     string value = GetCellValue(worksheet, rowIndex, headers, header.Key);
                     if (!string.IsNullOrEmpty(value))
                     {
@@ -190,31 +190,21 @@ namespace DIMS.Services
                         });
                     }
                 }
-                
+
             }
 
-            Console.WriteLine($"Создание проекта: {projectIdentifier}");
+            Console.WriteLine($"Создание проекта: {projectName}");
             int newProjectId = await _redmineApiService.CreateProject(project);
 
-            // Сохраняем созданный проект в словаре
-            _createdProjects[projectIdentifier] = newProjectId;
+            // Сохраняем созданный проект в словаре (по имени проекта)
+            _createdProjects[projectName] = newProjectId;
 
             return newProjectId;
         }
 
 
-       
-
-
         private async Task<int?> GetOrCreateParentIssue(ExcelWorksheet worksheet, int rowIndex, Dictionary<string, int> headers, int projectId)
         {
-            //// Проверяем наличие родительской задачи
-            //if (!headers.ContainsKey("ParentIssue") ||
-            //    string.IsNullOrEmpty(GetCellValue(worksheet, rowIndex, headers, "ParentIssue")))
-            //{
-            //    return null;
-            //}
-
             string parentIssueSubject = GetCellValue(worksheet, rowIndex, headers, "parent_subject (issues)");
             if (string.IsNullOrEmpty(parentIssueSubject))
             {
@@ -276,7 +266,6 @@ namespace DIMS.Services
                 ProjectId = projectId,
                 Subject = GetCellValue(worksheet, rowIndex, headers, "subject (issues)") ?? "Без названия",
                 Description = GetCellValue(worksheet, rowIndex, headers, "description (issues)") ?? "",
-                //Tracker = new RedmineTracker { Id = int.Parse(GetCellValue(worksheet, rowIndex, headers, "tracker_id\r\n(issues)").Split('_')[0]) }, // ID трекера по умолчанию
                 CustomFields = new List<RedmineCustomField>()
             };
 
@@ -332,7 +321,7 @@ namespace DIMS.Services
 
                     default:
                         // Обрабатываем кастомные поля задачи
-                        string[] issueCustomFields = { "20", "49", "37", "47", "48", "46"};
+                        string[] issueCustomFields = { "20", "49", "37", "47", "48", "46" };
 
                         if (issueCustomFields.Contains(header.Key))
                         {
@@ -379,13 +368,14 @@ namespace DIMS.Services
 
             // Проверяем длину и добавляем уникальный суффикс, если нужно
             if (string.IsNullOrEmpty(identifier))
-                identifier = "Проект";
+                identifier = "proekt";
 
-            //if (identifier.Length > 30)
-            //    identifier = identifier.Substring(0, 30);
-
-            // Добавляем уникальный суффикс
-            //string uniqueSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
+            // Добавляем уникальный суффикс, если имя проекта получилось пустым
+            if (string.IsNullOrEmpty(identifier))
+            {
+                string uniqueSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
+                identifier = "proekt-" + uniqueSuffix;
+            }
 
             return identifier;
         }

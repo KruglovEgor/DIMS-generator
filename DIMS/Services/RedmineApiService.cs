@@ -114,27 +114,47 @@ namespace DIMS.Services
                     }
                 }
 
-                // Формируем объект для сериализации
+                // Проверяем обязательные поля
+                if (issueData.ProjectId <= 0)
+                {
+                    throw new ArgumentException("ProjectId не может быть пустым");
+                }
+
+                if (issueData.Tracker == null || issueData.Tracker.Id <= 0)
+                {
+                    throw new ArgumentException("TrackerId не может быть пустым");
+                }
+
+                // Формируем объект для сериализации со строгой типизацией полей
                 var issueObj = new
                 {
                     issue = new
                     {
                         project_id = issueData.ProjectId,
-                        subject = issueData.Subject,
-                        description = issueData.Description,
+                        subject = issueData.Subject ?? "Без названия",
+                        description = issueData.Description ?? string.Empty,
                         start_date = issueData.StartDate?.ToString("yyyy-MM-dd"),
                         due_date = issueData.DueDate?.ToString("yyyy-MM-dd"),
                         estimated_hours = issueData.EstimatedHours,
-                        tracker_id = issueData.Tracker?.Id,
+                        tracker_id = issueData.Tracker.Id, // Обязательное поле
                         assigned_to_id = issueData.AssignedTo?.Id,
                         parent_issue_id = issueData.Parent?.Id,
-                        custom_fields = customFieldsList
+                        custom_fields = customFieldsList,
+                        status_id = 1 // Обязательное поле (1 - Новая)
                     }
                 };
 
                 // Сериализуем в JSON
                 var json = JsonConvert.SerializeObject(issueObj);
+                Console.WriteLine($"Отправляемый JSON: {json}");
+
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                // Убедимся, что заголовок Content-Type установлен правильно
+                if (!content.Headers.Contains("Content-Type"))
+                {
+                    content.Headers.Add("Content-Type", "application/json");
+                }
 
                 // Отправляем запрос
                 var response = await _httpClient.PostAsync("/issues.json", content);
@@ -143,12 +163,15 @@ namespace DIMS.Services
                 if (response.IsSuccessStatusCode)
                 {
                     var responseData = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Ответ сервера: {responseData}");
                     var createdIssue = JsonConvert.DeserializeObject<dynamic>(responseData);
                     return (int)createdIssue.issue.id;
                 }
                 else
                 {
                     var errorContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Ошибка API: {response.StatusCode}, Содержимое: {errorContent}");
+                    Console.WriteLine($"Заголовки запроса: {string.Join(", ", content.Headers.Select(h => $"{h.Key}={string.Join(",", h.Value)}"))}");
                     throw new Exception($"Ошибка создания задачи: {response.StatusCode}. {errorContent}");
                 }
             }
@@ -162,44 +185,58 @@ namespace DIMS.Services
         }
 
         /// <summary>
-        /// Получает ID проекта по его идентификатору
+        /// Получает ID проекта по его имени
         /// </summary>
-        /// <param name="projectIdentifier">Идентификатор проекта</param>
+        /// <param name="projectName">Имя проекта</param>
         /// <returns>ID проекта или 0, если проект не найден</returns>
-        public async Task<int> GetProjectIdByIdentifier(string projectIdentifier)
+        public async Task<int> GetProjectIdByName(string projectName)
         {
             try
             {
-                // Отправляем запрос к API Redmine для получения информации о проекте
-                var response = await _httpClient.GetAsync($"/projects/{projectIdentifier}.json");
+                // Кодируем имя проекта для использования в URL
+                string encodedName = Uri.EscapeDataString(projectName);
 
-                // Если проект найден, обрабатываем ответ
+                // Отправляем запрос к API Redmine для получения проектов с указанным именем
+                var response = await _httpClient.GetAsync($"/projects.json?name={encodedName}");
+
+                // Если запрос успешен, обрабатываем ответ
                 if (response.IsSuccessStatusCode)
                 {
                     var responseData = await response.Content.ReadAsStringAsync();
-                    var project = JsonConvert.DeserializeObject<dynamic>(responseData);
-                    return (int)project.project.id;
-                }
-                else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    // Проект не найден
+                    var projectsResponse = JsonConvert.DeserializeObject<dynamic>(responseData);
+
+                    // Поиск проекта по точному совпадению имени
+                    if (projectsResponse.projects != null && projectsResponse.projects.Count > 0)
+                    {
+                        foreach (var project in projectsResponse.projects)
+                        {
+                            // Проверяем точное совпадение имени (без учета регистра)
+                            if (string.Equals((string)project.name, projectName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return (int)project.id;
+                            }
+                        }
+                    }
+
+                    // Проект с точным совпадением имени не найден
                     return 0;
                 }
                 else
                 {
-                    // Другая ошибка
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    throw new Exception($"Ошибка получения проекта: {response.StatusCode}. {errorContent}");
+                    Console.WriteLine($"Ошибка при получении проектов: {response.StatusCode}. {errorContent}");
+                    return 0;
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Ошибка при получении проекта: {ex.Message}");
+                Console.WriteLine($"Ошибка при поиске проекта по имени: {ex.Message}");
                 if (ex.InnerException != null)
                     Console.WriteLine($"Внутренняя ошибка: {ex.InnerException.Message}");
-                throw;
+                return 0;
             }
         }
+
 
         /// <summary>
         /// Ищет задачу по названию в указанном проекте
