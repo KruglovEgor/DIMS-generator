@@ -352,32 +352,27 @@ namespace DIMS.Services
 
         private string GetValidIdentifier(string name)
         {
-            if (string.IsNullOrEmpty(name))
-                return name;
+            var identifier = name.ToLower();
 
-            // Преобразование имени проекта в допустимый идентификатор
-            // (только строчные латинские буквы, цифры, дефисы)
-            var identifier = name.ToLower()
-                .Replace(" ", "-")
-                .Replace(".", "")
-                .Replace(",", "")
-                .Replace("_", "-");
-
-            // Удаляем все символы, кроме a-z, 0-9 и дефиса
-            identifier = new string(identifier.Where(c => (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-').ToArray());
-
-            // Проверяем длину и добавляем уникальный суффикс, если нужно
-            if (string.IsNullOrEmpty(identifier))
-                identifier = "proekt";
-
-            // Добавляем уникальный суффикс, если имя проекта получилось пустым
-            if (string.IsNullOrEmpty(identifier))
+            if (!string.IsNullOrEmpty(name) && name.Length <= 30)
             {
-                string uniqueSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
-                identifier = "proekt-" + uniqueSuffix;
+                // Преобразование имени проекта в допустимый идентификатор
+                // (только строчные латинские буквы, цифры, дефисы)
+                identifier = name.Replace(" ", "-")
+                    .Replace(".", "")
+                    .Replace(",", "")
+                    .Replace("_", "-");
+
+                identifier = new string(identifier.Where(c => (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-').ToArray());
+
+                if (!string.IsNullOrEmpty(identifier))
+                {
+                    return identifier;
+                }
             }
 
-            return identifier;
+            DateTime now = DateTime.Now;
+            return $"project-{now:yyyy-MM-dd-HH-mm-ss}";
         }
     }
 }
